@@ -175,8 +175,13 @@ int main(int argc, char** argv)
        (my_mpi_rank == 0 && g_opts.gpu_to_mem) || 
        (my_mpi_rank == 1 && g_opts.mem_to_gpu)) {
     	cudaMalloc((void **)&c_buffer, g_opts.g_buffer_size);
+    	if (!c_buffer) {
+       	    fprintf(stderr, "Error: unable to cudaMalloc %lu byte buffer.\n",
+                    g_opts.g_buffer_size);
+            return (-1);
+    	}
+
     	cudaMemset(c_buffer, 0, g_opts.g_buffer_size);
-    	cudaMemcpy(c_buffer, g_buffer, g_opts.g_buffer_size, cudaMemcpyHostToDevice);
 	use_cuda_buf = 1;
     }
 
@@ -262,11 +267,14 @@ int main(int argc, char** argv)
 
         /* register memory for xfer */
 
-	bulk_attr.mem_type = (hg_mem_type_t)NA_MEM_TYPE_CUDA;
+	if (use_cuda_buf) {
+	    bulk_attr.mem_type = (hg_mem_type_t)NA_MEM_TYPE_CUDA;
+	    buffer = c_buffer;
+	}
 
 	/* Use c_buffer if (GPU to GPU || -j option) otherwise use g_buffer */
-        ret = margo_bulk_create_attr(mid, 1, use_cuda_buf? (void **)&c_buffer : (void **)&buffer, 
-				&g_opts.g_buffer_size, HG_BULK_READWRITE, &bulk_attr, &g_bulk_handle);
+        ret = margo_bulk_create_attr(mid, 1, (void **)&buffer, &g_opts.g_buffer_size, 
+				HG_BULK_READWRITE, &bulk_attr, &g_bulk_handle);
         assert(ret == 0);
 
         /* set up abt pool */
@@ -490,8 +498,8 @@ static void usage(void)
 	"\t[-j] - transfer data from GPU memory of host A to main memory of host B\n"
         "\t[-k] - transfer data from main memory of host A to GPU memory of host B\n\n"
         "\tDefault without -j and -k options will transfer data\n"
-        "\tfrom GUP memory of host A to GPU memory of host B\n\n"
-        "\texample: mpiexec -n 2 ./margo-p2p-bw -x 4096 -D 30 -n verbs://\n"
+        "\tfrom GPU memory of host A to GPU memory of host B\n\n"
+        "\texample: mpiexec -n 2 ./gpu-margo-p2p-bw -x 4096 -D 30 -n verbs://\n"
         "\t(must be run with exactly 2 processes\n");
 
     return;
@@ -570,7 +578,7 @@ static void bw_ult(hg_handle_t handle)
          */
 	/* Perform cudaMemcpy only if (GPU to GPU  || -k option) */
 	if (use_cuda_buf)
-    	    cudaMemcpy(g_buffer, c_buffer, g_opts.g_buffer_size, cudaMemcpyDeviceToHost);
+    	    cudaMemcpy(g_buffer, c_buffer, bytes_to_check, cudaMemcpyDeviceToHost);
 
         for (x = 0; x < (bytes_to_check / sizeof(x)); x++) {
             assert(((hg_size_t*)g_buffer)[x] == x);
@@ -633,10 +641,13 @@ static int run_benchmark(hg_id_t           id,
     ret = margo_create(mid, target_addr, id, &handle);
     assert(ret == 0);
 
-    bulk_attr.mem_type = (hg_mem_type_t)NA_MEM_TYPE_CUDA;
+    if (use_cuda_buf) {
+        bulk_attr.mem_type = (hg_mem_type_t)NA_MEM_TYPE_CUDA;
+	buffer = c_buffer;
+    }
     /* Use c_buffer if (GPU to GPU or -k option) otherwise use g_buffer */
-    ret = margo_bulk_create_attr(mid, 1, use_cuda_buf ? (void **)&c_buffer : (void **)&buffer, 
-		    	    &g_opts.g_buffer_size, HG_BULK_READWRITE, &bulk_attr, &in.bulk_handle);
+    ret = margo_bulk_create_attr(mid, 1, (void **)&buffer, &g_opts.g_buffer_size, 
+			HG_BULK_READWRITE, &bulk_attr, &in.bulk_handle);
     assert(ret == 0);
     in.op       = HG_BULK_PULL;
     in.shutdown = 0;
