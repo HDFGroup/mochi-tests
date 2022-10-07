@@ -577,8 +577,10 @@ static void bw_ult(hg_handle_t handle)
          * but then overwrite it with correct results on a later pass.
          */
 	/* Perform cudaMemcpy only if (GPU to GPU  || -k option) */
+#ifndef NDEBUG
 	if (use_cuda_buf)
     	    cudaMemcpy(g_buffer, c_buffer, bytes_to_check, cudaMemcpyDeviceToHost);
+#endif
 
         for (x = 0; x < (bytes_to_check / sizeof(x)); x++) {
             assert(((hg_size_t*)g_buffer)[x] == x);
@@ -708,8 +710,10 @@ static int run_benchmark(hg_id_t           id,
     /* check fill pattern we got back; should be what we set plus one */
 
     /* Perform cudaMemcpy only if (GPU to GPU || -j option) */
+#ifndef NDEBUG
     if (use_cuda_buf) 
     	cudaMemcpy(g_buffer, c_buffer, g_opts.g_buffer_size, cudaMemcpyDeviceToHost);
+#endif
 
     for (i = 0; i < (bytes_to_check / sizeof(i)); i++) {
         assert(((hg_size_t*)g_buffer)[i] == i + 1);
